@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>AI 수업안 생성기 (Gemini + GitHub Pages)</title>
+  <style>
+    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Apple SD Gothic Neo,Noto Sans KR,sans-serif;background:#f6f7fb;margin:0;padding:0;}
+    .wrap{max-width:880px;margin:40px auto;padding:24px;background:#fff;border-radius:16px;box-shadow:0 6px 24px rgba(0,0,0,.06)}
+    h1{font-size:22px;margin:0 0 12px}
+    .grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+    label{font-size:13px;color:#333}
+    input,textarea,select{width:100%;padding:10px 12px;border:1px solid #dcdfe6;border-radius:10px;font-size:14px;box-sizing:border-box;background:#fafbff}
+    textarea{min-height:72px}
+    .full{grid-column:1 / -1}
+    .btn{display:inline-flex;align-items:center;gap:8px;background:#2f6fed;color:#fff;border:none;border-radius:10px;padding:12px 16px;font-weight:600;cursor:pointer}
+    .btn:disabled{opacity:.5;cursor:not-allowed}
+    .out{white-space:pre-wrap;background:#0b1020;color:#e9ecff;padding:16px;border-radius:12px;font-family:ui-monospace,Consolas,Menlo,monospace;font-size:13px}
+    .mt{margin-top:16px}
+    .hint{font-size:12px;color:#667}
+    .row{display:flex;gap:8px;flex-wrap:wrap}
+    .tag{background:#eef2ff;border:1px solid #dbe1ff;color:#2f3a7a;padding:4px 8px;border-radius:999px;font-size:12px}
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <h1>AI 수업안 생성기</h1>
+  <p class="hint">입력 후 "생성하기"를 누르면 수업안과 학습지 JSON이 아래에 출력됩니다. (API 키는 서버에만 저장)</p>
+
+  <div class="grid">
+    <div>
+      <label>과목</label>
+      <input id="subject" value="확률과 통계">
+    </div>
+    <div>
+      <label>대상</label>
+      <input id="grade" value="고2 선택">
+    </div>
+    <div>
+      <label>주제</label>
+      <input id="topic" value="이산확률변수의 기댓값과 표준편차">
+    </div>
+    <div>
+      <label>시간(분)</label>
+      <input id="duration" type="number" value="50">
+    </div>
+    <div>
+      <label>학급 인원</label>
+      <input id="classSize" type="number" value="18">
+    </div>
+    <div>
+      <label>학습지 문항 수</label>
+      <input id="nq" type="number" value="10">
+    </div>
+    <div class="full">
+      <label>제약/메모</label>
+      <textarea id="constraints">아이패드 사용, 구글 스프레드시트 학습지, 활동 위주, 평가 간단</textarea>
+    </div>
+  </div>
+
+  <div class="row mt">
+    <button class="btn" id="runBtn">⚡ 생성하기</button>
+    <button class="btn" id="dlPlan" disabled>⬇️ 수업안(JSON) 저장</button>
+    <button class="btn" id="dlWs" disabled>⬇️ 학습지(JSON) 저장</button>
+  </div>
+
+  <div class="mt">
+    <div class="tag">Gemini 1.5 Flash</div>
+    <div class="tag">GitHub Pages</div>
+    <div class="tag">Apps Script Web App Proxy</div>
+  </div>
+
+  <h3 class="mt">출력</h3>
+  <div id="out" class="out">대기 중…</div>
+</div>
+
+<script>
+const ENDPOINT = "https://script.google.com/macros/s/AKfycbzT1IlxCsndM6cuy1BJjuvMWGsrED2KmnsrYlLb2mZVlQayox-5F-QBARuLBZruVkIifA/exec"; // ← 여기에 Web App URL
+
+const runBtn = document.getElementById('runBtn');
+const out = document.getElementById('out');
+const dlPlanBtn = document.getElementById('dlPlan');
+const dlWsBtn = document.getElementById('dlWs');
+
+let lastPlan = null, lastWs = null;
+
+runBtn.addEventListener('click', async () => {
+  runBtn.disabled = true; out.textContent = "생성 중… (최대 수십 초)";
+  lastPlan = null; lastWs = null; dlPlanBtn.disabled = true; dlWsBtn.disabled = true;
+
+  const body = {
+    subject: document.getElementById('subject').value.trim(),
+    topic: document.getElementById('topic').value.trim(),
+    grade_level: document.getElementById('grade').value.trim(),
+    duration_min: Number(document.getElementById('duration').value || 50),
+    class_size: Number(document.getElementById('classSize').value || 20),
+    constraints: document.getElementById('constraints').value.trim(),
+    n_questions: Number(document.getElementById('nq').value || 10),
+  };
+
+  try {
+    const res = await fetch(ENDPOINT, {
+      method: 'POST',
+      headers: { 'Content-Type':'application/json' },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json();
+
+    if (!data.ok) {
+      out.textContent = "오류:\n" + JSON.stringify(data, null, 2);
+      return;
+    }
+    lastPlan = data.lesson;
+    lastWs = data.worksheet;
+    out.textContent = "✅ 수업안\n" + JSON.stringify(lastPlan, null, 2) + "\n\n✅ 학습지\n" + JSON.stringify(lastWs, null, 2);
+    dlPlanBtn.disabled = false; dlWsBtn.disabled = false;
+  } catch (err) {
+    out.textContent = "요청 실패: " + err;
+  } finally {
+    runBtn.disabled = false;
+  }
+});
+
+function downloadJSON(obj, filename) {
+  const blob = new Blob([JSON.stringify(obj, null, 2)], {type:'application/json'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  a.click();
+  setTimeout(()=>URL.revokeObjectURL(a.href), 1000);
+}
+
+dlPlanBtn.addEventListener('click', ()=> lastPlan && downloadJSON(lastPlan, 'lesson_plan.json'));
+dlWsBtn.addEventListener('click', ()=> lastWs && downloadJSON(lastWs, 'worksheet.json'));
+</script>
+</body>
+</html>
